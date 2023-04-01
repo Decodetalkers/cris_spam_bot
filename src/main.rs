@@ -9,6 +9,8 @@ use matrix_sdk::{
     config::SyncSettings, room::Room, ruma::events::room::message::RoomMessageEventContent, Client,
 };
 
+static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -52,19 +54,30 @@ async fn main() -> anyhow::Result<()> {
             let rooms = config.keys.rooms;
             let (sync_io_tx, receiver) = tokio::sync::mpsc::channel::<String>(100);
             tokio::spawn(async move {
+                let client = reqwest::Client::builder()
+                    .user_agent(APP_USER_AGENT)
+                    .build()?;
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     let notifications = octocrab.activity().notifications().list().send().await?;
                     for n in notifications {
                         println!("unread notification: {}", n.subject.title);
-                        let url = n.subject.url;
                         let comment = n.subject.latest_comment_url;
-                        let message = match (url, comment) {
-                            (Some(url), Some(comment)) => {
-                                format!("{}\n{}\n{}", n.subject.title, url, comment)
+
+                        let message = match comment {
+                            Some(comment) => {
+                                let text = client.get(comment.clone()).send().await?.text().await?;
+                                let value: serde_json::Value = serde_json::from_str(&text)?;
+
+                                let html_url: String = value["html_url"].to_string();
+                                format!("{}\n{}", n.subject.title, html_url)
                             }
-                            (Some(url), _) => format!("{}\n{}", n.subject.title, url),
-                            _ => n.subject.title,
+                            _ => {
+                                let text = client.get(n.url.clone()).send().await?.text().await?;
+                                let value: serde_json::Value = serde_json::from_str(&text)?;
+                                let html_url: String = value["html_url"].to_string();
+                                format!("{}\n{}", n.subject.title, html_url)
+                            }
                         };
                         let _ = sync_io_tx.send(message).await;
                     }
