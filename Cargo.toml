@@ -16,7 +16,7 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.7.3"
 clap = "4.2.1"
 
-# FIXME: Remove when matrix-sdk dependencies don't pin zeroize (conflict with oo7)
+# FIXME: Remove when matrix-sdk dependencies don't pin zeroize 
 [patch.crates-io.x25519-dalek]
 git = "https://github.com/A6GibKm/x25519-dalek"
 rev = "9f19028c34107eea87d37bcee2eb2b350ec34cfe"
