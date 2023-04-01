@@ -14,6 +14,7 @@ pub struct Keys {
     pub matrix_acount: String,
     pub matrix_passward: String,
     pub homeserver: String,
+    pub rooms: Option<Vec<String>>,
 }
 
 impl Config {
@@ -44,7 +45,8 @@ fn tst_toml() {
                 github_token: "abc".to_string(),
                 matrix_acount: "youraccountfullname".to_string(),
                 matrix_passward: "yourpassward".to_string(),
-                homeserver: "https://matrix-client.matrix.org".to_string()
+                homeserver: "https://matrix-client.matrix.org".to_string(),
+                rooms: Some(vec!["a".to_string(), "b".to_string()]),
             }
         }
     );

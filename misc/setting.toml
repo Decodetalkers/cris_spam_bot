@@ -5,3 +5,4 @@ github_token = "abc"
 matrix_acount = "youraccountfullname"
 matrix_passward = "yourpassward"
 homeserver = "https://matrix-client.matrix.org" # example
+rooms = ["a", "b"]

@@ -49,6 +49,7 @@ async fn main() -> anyhow::Result<()> {
             let homeserver_url = config.keys.homeserver;
             let username = config.keys.matrix_acount;
             let password = config.keys.matrix_passward;
+            let rooms = config.keys.rooms;
             let (sync_io_tx, receiver) = tokio::sync::mpsc::channel::<String>(100);
             tokio::spawn(async move {
                 loop {
@@ -76,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
                 #[allow(unreachable_code)]
                 Ok::<(), anyhow::Error>(())
             });
-            login_and_sync(homeserver_url, username, password, receiver).await?;
+            login_and_sync(homeserver_url, username, password, rooms, receiver).await?;
         }
         _ => unreachable!(),
     }
@@ -87,6 +88,7 @@ async fn login_and_sync(
     homeserver_url: String,
     username: String,
     password: String,
+    allowedrooms: Option<Vec<String>>,
     mut receiver: Receiver<String>,
 ) -> matrix_sdk::Result<()> {
     let client = Client::builder()
@@ -106,16 +108,37 @@ async fn login_and_sync(
 
     let clientin = client.clone();
 
-    tokio::spawn(async move {
-        while let Some(message) = receiver.recv().await {
-            for room in clientin.rooms() {
-                if let Room::Joined(room) = room {
-                    let content = RoomMessageEventContent::text_plain(&message);
-                    let _ = room.send(content, None).await;
+    if let Some(allowedrooms) = allowedrooms {
+        tokio::spawn(async move {
+            while let Some(message) = receiver.recv().await {
+                for room in clientin.rooms() {
+                    if let Room::Joined(room) = room {
+                        let Some(roomname) = room.name() else {
+                            continue;
+                        };
+                        println!("the roomname is : {roomname}");
+                        if !allowedrooms.contains(&roomname) {
+                            continue;
+                        }
+                        let content = RoomMessageEventContent::text_plain(&message);
+                        let _ = room.send(content, None).await;
+                    }
                 }
             }
-        }
-        Ok::<(), anyhow::Error>(())
-    });
+            Ok::<(), anyhow::Error>(())
+        });
+    } else {
+        tokio::spawn(async move {
+            while let Some(message) = receiver.recv().await {
+                for room in clientin.rooms() {
+                    if let Room::Joined(room) = room {
+                        let content = RoomMessageEventContent::text_plain(&message);
+                        let _ = room.send(content, None).await;
+                    }
+                }
+            }
+            Ok::<(), anyhow::Error>(())
+        });
+    }
     client.sync(SyncSettings::default()).await
 }
