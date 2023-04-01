@@ -3,5 +3,5 @@ botname = "hello"
 [keys]
 github_token = "abc"
 matrix_acount = "youraccountfullname"
-matrix_passward = "youpassward"
+matrix_passward = "yourpassward"
 homeserver = "https://matrix-client.matrix.org" # example

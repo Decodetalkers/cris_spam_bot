@@ -41,10 +41,10 @@ fn tst_toml() {
         Config {
             botname: "hello".to_string(),
             keys: Keys {
-                github_token: "123".to_string(),
-                matrix_acount: "123".to_string(),
-                matrix_passward: "123".to_string(),
-                homeserver: "123".to_string()
+                github_token: "abc".to_string(),
+                matrix_acount: "youraccountfullname".to_string(),
+                matrix_passward: "yourpassward".to_string(),
+                homeserver: "https://matrix-client.matrix.org".to_string()
             }
         }
     );
