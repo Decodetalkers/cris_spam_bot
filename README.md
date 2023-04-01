@@ -1,6 +1,6 @@
 # Github Notification Bot
 
-## Useage
+## Usege
 
 ```
 github-notification-bot -o /path/to/config.toml
