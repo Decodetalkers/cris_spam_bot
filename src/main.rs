@@ -60,23 +60,23 @@ async fn main() -> anyhow::Result<()> {
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     let notifications = octocrab.activity().notifications().list().send().await?;
-                    for n in notifications {
-                        println!("unread notification: {}", n.subject.title);
-                        let comment = n.subject.latest_comment_url;
+                    for notify in notifications {
+                        println!("unread notification: {}", notify.subject.title);
+                        let comment = notify.subject.latest_comment_url;
 
                         let message = match comment {
                             Some(comment) => {
                                 let text = client.get(comment.clone()).send().await?.text().await?;
                                 let value: serde_json::Value = serde_json::from_str(&text)?;
 
-                                let html_url: String = value["html_url"].to_string();
-                                format!("{}\n{}", n.subject.title, html_url)
+                                let html_url = value["html_url"].as_str().unwrap();
+                                format!("{}\n{}", notify.subject.title, html_url)
                             }
                             _ => {
-                                let text = client.get(n.url.clone()).send().await?.text().await?;
+                                let text = client.get(notify.url.clone()).send().await?.text().await?;
                                 let value: serde_json::Value = serde_json::from_str(&text)?;
-                                let html_url: String = value["html_url"].to_string();
-                                format!("{}\n{}", n.subject.title, html_url)
+                                let html_url = value["html_url"].as_str().unwrap();
+                                format!("{}\n{}", notify.subject.title, html_url)
                             }
                         };
                         let _ = sync_io_tx.send(message).await;
