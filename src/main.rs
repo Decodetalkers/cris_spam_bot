@@ -5,13 +5,17 @@ use std::path::PathBuf;
 
 use matrix_sdk::{
     config::SyncSettings,
-    ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
+    ruma::events::{
+        room::{member::OriginalSyncRoomMemberEvent, message::RoomMessageEventContent},
+        Mentions,
+    },
+    sync::SyncResponse,
     Client, Room, RoomState,
 };
 
-use once_cell::sync::OnceCell;
+use std::sync::OnceLock;
 
-static ROOM_FILITERS: OnceCell<Option<Vec<String>>> = OnceCell::new();
+static ROOM_FILITERS: OnceLock<Option<Vec<String>>> = OnceLock::new();
 
 async fn set_rooms(rooms: Option<Vec<String>>) {
     ROOM_FILITERS.set(rooms).expect("Cannot set it");
@@ -67,22 +71,33 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
-    if let RoomState::Joined = room.state() {
-        let MessageType::Text(text) = event.content.msgtype else {
-            return;
-        };
-        if let Some(rooms) = get_rooms().await {
-            let Some(room_name) = room.name() else {
-                return;
-            };
-            if rooms.contains(&room_name) {
-                println!("{room_name}");
-                println!("{text:?}");
-            }
-        } else {
-            println!("{:?}", room.name());
-            println!("{text:?}");
+async fn on_room_event_message(event: OriginalSyncRoomMemberEvent, room: Room) {
+    if RoomState::Joined != room.state() {
+        return;
+    };
+    let Some(rooms) = get_rooms().await else {
+        return;
+    };
+    let Some(room_name) = room.name() else {
+        return;
+    };
+    if !rooms.contains(&room_name) {
+        return;
+    }
+
+    let Some(display_name) = event.content.displayname else {
+        return;
+    };
+    if display_name.len() >= 20 {
+        let reply = RoomMessageEventContent::text_plain(format!("Warning, spam, {}", event.sender));
+        let mut methon = Mentions::new();
+        methon.user_ids.insert(event.sender.clone());
+        let reply = reply.set_mentions(methon);
+        room.send(reply.clone()).await.ok();
+        if let Ok(true) = room.can_user_ban(&event.sender).await {
+            room.ban_user(&event.sender, Some("UserName Spam"))
+                .await
+                .ok();
         }
     }
 }
@@ -91,23 +106,23 @@ async fn login_and_sync(
     homeserver_url: String,
     username: String,
     password: String,
-) -> matrix_sdk::Result<()> {
+) -> anyhow::Result<()> {
     let client = Client::builder()
         .homeserver_url(homeserver_url)
         .build()
-        .await
-        .expect("Cannot init Client");
+        .await?;
 
     client
         .matrix_auth()
         .login_username(&username, &password)
         .initial_device_display_name("command bot")
-        .await
-        .unwrap_or_else(|e| panic!("{e}"));
+        .await?;
 
-    client.sync_once(SyncSettings::default()).await?;
+    let response: SyncResponse = client.sync_once(SyncSettings::default()).await?;
 
-    client.add_event_handler(on_room_message);
-    let settings = SyncSettings::default();
-    client.sync(settings).await
+    client.add_event_handler(on_room_event_message);
+
+    let settings = SyncSettings::default().token(response.next_batch);
+    client.sync(settings).await?;
+    Ok(())
 }
