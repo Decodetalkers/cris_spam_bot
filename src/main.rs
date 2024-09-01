@@ -87,10 +87,8 @@ async fn on_room_event_message(event: OriginalSyncRoomMemberEvent, room: Room) {
     };
     if display_name.len() >= 20 {
         tracing::info!("Spam! {}", event.sender);
-        let reply = RoomMessageEventContent::text_plain(format!("Warning, spam, {}", event.sender));
-        let mut methon = Mentions::new();
-        methon.user_ids.insert(event.sender.clone());
-        let reply = reply.set_mentions(methon);
+        let reply = RoomMessageEventContent::text_plain(format!("Warning, spam, {}", event.sender))
+            .set_mentions(Mentions::with_user_ids([event.sender.clone()]));
         room.send(reply.clone()).await.ok();
         if let Ok(true) = room.can_user_ban(&event.sender).await {
             tracing::info!("Ban {}", event.sender);
