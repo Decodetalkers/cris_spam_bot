@@ -1,9 +1,11 @@
-# Github Notification Bot
+# Cris Spam bot
+
+Spam bot for matrix users.
 
 ## Usege
 
-```
-github-notification-bot -o /path/to/config.toml
+```bash
+cris_spam_bot -o /path/to/config.toml
 ```
 
 toml example is under misc
