@@ -1,5 +1,4 @@
 mod config;
-use clap::{arg, Command};
 use config::Config;
 use std::path::PathBuf;
 
@@ -13,8 +12,10 @@ use matrix_sdk::{
     Client, Room, RoomState,
 };
 
+use clap::{arg, Parser};
 use std::sync::OnceLock;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 static ROOM_FILITERS: OnceLock<Option<Vec<String>>> = OnceLock::new();
 
 async fn set_rooms(rooms: Option<Vec<String>>) {
@@ -25,48 +26,44 @@ async fn get_rooms() -> Option<Vec<String>> {
     ROOM_FILITERS.get().unwrap_or(&None).clone()
 }
 
+#[derive(Parser, PartialEq, Eq, Debug)]
+#[command(
+    name ="cris_spam_bot",
+    about = "a github_matrix_spam_bot",
+    long_about = None,
+    author = "Cris",
+    version=VERSION
+)]
+enum MartixSpamBotCli {
+    Config {
+        #[arg(required = true)]
+        config_path: PathBuf,
+    },
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    const VERSION: &str = env!("CARGO_PKG_VERSION");
+    tracing_subscriber::fmt().init();
 
-    let matches = Command::new("github_matrix_notifications_bot")
-        .about("a github_matrix_notifications_bot")
-        .version(VERSION)
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .author("Cris")
-        .subcommand(
-            Command::new("config")
-                .long_flag("config")
-                .short_flag('C')
-                .about("config path set")
-                .arg(
-                    arg!(<ConfigFile> ... "configfile").value_parser(clap::value_parser!(PathBuf)),
-                ),
-        )
-        .get_matches();
-    match matches.subcommand() {
-        Some(("config", sub_matches)) => {
-            let filepath = sub_matches
-                .get_one::<PathBuf>("ConfigFile")
-                .expect("Need a configfile");
-            let configsrc = Config::config_from_file(filepath);
-            if configsrc.is_none() {
-                panic!("error toml");
-            }
-            let config = configsrc.unwrap();
+    let MartixSpamBotCli::Config { config_path } = MartixSpamBotCli::parse();
 
-            let botid = config.botname;
-            println!("bot {botid} is running");
-            let homeserver_url = config.keys.homeserver;
-            let username = config.keys.matrix_acount;
-            let password = config.keys.matrix_passward;
-            let rooms = config.keys.rooms;
-            set_rooms(rooms).await;
-            login_and_sync(homeserver_url, username, password).await?;
-        }
-        _ => unreachable!(),
+    let configsrc = Config::config_from_file(config_path);
+    if configsrc.is_none() {
+        panic!("error toml");
     }
+
+    let config = configsrc.unwrap();
+
+    let botid = config.botname;
+
+    tracing::info!("bot {botid} is running");
+
+    let homeserver_url = config.keys.homeserver;
+    let username = config.keys.matrix_acount;
+    let password = config.keys.matrix_passward;
+    let rooms = config.keys.rooms;
+    set_rooms(rooms).await;
+    login_and_sync(homeserver_url, botid, username, password).await?;
 
     Ok(())
 }
@@ -89,12 +86,14 @@ async fn on_room_event_message(event: OriginalSyncRoomMemberEvent, room: Room) {
         return;
     };
     if display_name.len() >= 20 {
+        tracing::info!("Spam! {}", event.sender);
         let reply = RoomMessageEventContent::text_plain(format!("Warning, spam, {}", event.sender));
         let mut methon = Mentions::new();
         methon.user_ids.insert(event.sender.clone());
         let reply = reply.set_mentions(methon);
         room.send(reply.clone()).await.ok();
         if let Ok(true) = room.can_user_ban(&event.sender).await {
+            tracing::info!("Ban {}", event.sender);
             room.ban_user(&event.sender, Some("UserName Spam"))
                 .await
                 .ok();
@@ -104,6 +103,7 @@ async fn on_room_event_message(event: OriginalSyncRoomMemberEvent, room: Room) {
 
 async fn login_and_sync(
     homeserver_url: String,
+    bot_name: String,
     username: String,
     password: String,
 ) -> anyhow::Result<()> {
@@ -115,7 +115,7 @@ async fn login_and_sync(
     client
         .matrix_auth()
         .login_username(&username, &password)
-        .initial_device_display_name("command bot")
+        .initial_device_display_name(&bot_name)
         .await?;
 
     let response: SyncResponse = client.sync_once(SyncSettings::default()).await?;
