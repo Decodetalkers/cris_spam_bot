@@ -1,15 +1,25 @@
 mod config;
 use clap::{arg, Command};
 use config::Config;
-use octocrab::Octocrab;
 use std::path::PathBuf;
-use tokio::sync::mpsc::Receiver;
 
 use matrix_sdk::{
-    config::SyncSettings, room::Room, ruma::events::room::message::RoomMessageEventContent, Client,
+    config::SyncSettings,
+    ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
+    Client, Room, RoomState,
 };
 
-static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
+use once_cell::sync::OnceCell;
+
+static ROOM_FILITERS: OnceCell<Option<Vec<String>>> = OnceCell::new();
+
+async fn set_rooms(rooms: Option<Vec<String>>) {
+    ROOM_FILITERS.set(rooms).expect("Cannot set it");
+}
+
+async fn get_rooms() -> Option<Vec<String>> {
+    ROOM_FILITERS.get().unwrap_or(&None).clone()
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -41,117 +51,63 @@ async fn main() -> anyhow::Result<()> {
                 panic!("error toml");
             }
             let config = configsrc.unwrap();
-            let Ok(octocrab) = Octocrab::builder()
-                .personal_token(config.keys.github_token)
-                .build() else {
-                    panic!("broken github_token");
-            };
+
             let botid = config.botname;
             println!("bot {botid} is running");
             let homeserver_url = config.keys.homeserver;
             let username = config.keys.matrix_acount;
             let password = config.keys.matrix_passward;
             let rooms = config.keys.rooms;
-            let (sync_io_tx, receiver) = tokio::sync::mpsc::channel::<String>(100);
-            tokio::spawn(async move {
-                let client = reqwest::Client::builder()
-                    .user_agent(APP_USER_AGENT)
-                    .build()?;
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    let notifications = octocrab.activity().notifications().list().send().await?;
-                    for notify in notifications {
-                        println!("unread notification: {}", notify.subject.title);
-                        let comment = notify.subject.latest_comment_url;
-
-                        let message = match comment {
-                            Some(comment) => {
-                                let text = client.get(comment.clone()).send().await?.text().await?;
-                                let value: serde_json::Value = serde_json::from_str(&text)?;
-
-                                let html_url = value["html_url"].as_str().unwrap();
-                                format!("{}\n{}", notify.subject.title, html_url)
-                            }
-                            _ => {
-                                let text = client.get(notify.url.clone()).send().await?.text().await?;
-                                let value: serde_json::Value = serde_json::from_str(&text)?;
-                                let html_url = value["html_url"].as_str().unwrap();
-                                format!("{}\n{}", notify.subject.title, html_url)
-                            }
-                        };
-                        let _ = sync_io_tx.send(message).await;
-                    }
-                    octocrab
-                        .activity()
-                        .notifications()
-                        .mark_all_as_read(None)
-                        .await?;
-                }
-                #[allow(unreachable_code)]
-                Ok::<(), anyhow::Error>(())
-            });
-            login_and_sync(homeserver_url, username, password, rooms, receiver).await?;
+            set_rooms(rooms).await;
+            login_and_sync(homeserver_url, username, password).await?;
         }
         _ => unreachable!(),
     }
+
     Ok(())
+}
+
+async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
+    if let RoomState::Joined = room.state() {
+        let MessageType::Text(text) = event.content.msgtype else {
+            return;
+        };
+        if let Some(rooms) = get_rooms().await {
+            let Some(room_name) = room.name() else {
+                return;
+            };
+            if rooms.contains(&room_name) {
+                println!("{room_name}");
+                println!("{text:?}");
+            }
+        } else {
+            println!("{:?}", room.name());
+            println!("{text:?}");
+        }
+    }
 }
 
 async fn login_and_sync(
     homeserver_url: String,
     username: String,
     password: String,
-    allowedrooms: Option<Vec<String>>,
-    mut receiver: Receiver<String>,
 ) -> matrix_sdk::Result<()> {
     let client = Client::builder()
         .homeserver_url(homeserver_url)
         .build()
         .await
-        .unwrap_or_else(|e| panic!("{e}"));
+        .expect("Cannot init Client");
 
     client
+        .matrix_auth()
         .login_username(&username, &password)
         .initial_device_display_name("command bot")
-        .send()
         .await
         .unwrap_or_else(|e| panic!("{e}"));
 
-    println!("logged in as {username}");
+    client.sync_once(SyncSettings::default()).await?;
 
-    let clientin = client.clone();
-
-    if let Some(allowedrooms) = allowedrooms {
-        tokio::spawn(async move {
-            while let Some(message) = receiver.recv().await {
-                for room in clientin.rooms() {
-                    if let Room::Joined(room) = room {
-                        let Some(roomname) = room.name() else {
-                            continue;
-                        };
-                        println!("the roomname is : {roomname}");
-                        if !allowedrooms.contains(&roomname) {
-                            continue;
-                        }
-                        let content = RoomMessageEventContent::text_plain(&message);
-                        let _ = room.send(content, None).await;
-                    }
-                }
-            }
-            Ok::<(), anyhow::Error>(())
-        });
-    } else {
-        tokio::spawn(async move {
-            while let Some(message) = receiver.recv().await {
-                for room in clientin.rooms() {
-                    if let Room::Joined(room) = room {
-                        let content = RoomMessageEventContent::text_plain(&message);
-                        let _ = room.send(content, None).await;
-                    }
-                }
-            }
-            Ok::<(), anyhow::Error>(())
-        });
-    }
-    client.sync(SyncSettings::default()).await
+    client.add_event_handler(on_room_message);
+    let settings = SyncSettings::default();
+    client.sync(settings).await
 }

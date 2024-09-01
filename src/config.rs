@@ -10,7 +10,6 @@ pub struct Config {
 
 #[derive(Deserialize, PartialEq, Eq, Debug)]
 pub struct Keys {
-    pub github_token: String,
     pub matrix_acount: String,
     pub matrix_passward: String,
     pub homeserver: String,
@@ -42,7 +41,6 @@ fn tst_toml() {
         Config {
             botname: "hello".to_string(),
             keys: Keys {
-                github_token: "abc".to_string(),
                 matrix_acount: "youraccountfullname".to_string(),
                 matrix_passward: "yourpassward".to_string(),
                 homeserver: "https://matrix-client.matrix.org".to_string(),
