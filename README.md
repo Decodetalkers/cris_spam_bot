@@ -20,3 +20,9 @@ toml example is under misc
 * write token, account, passward, botname, and homeserver to toml
 * run it, and click `it is me` on matrix client applications
 * try open a issue under the repo is watched with another account
+
+## From docker
+
+```
+sudo docker run -v /host/settings/dir:/settings/ ${imageid} config /settings/setting.toml
+```
