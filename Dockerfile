@@ -13,5 +13,6 @@ FROM debian:latest AS final
 RUN apt update && apt install -y sqlite3 libsqlite3-dev libssl-dev
 
 COPY --from=build /app/cris_spam_bot /bin/
+COPY --from=build /app/README.md /
 
 ENTRYPOINT [ "/bin/cris_spam_bot" ]
