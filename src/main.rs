@@ -90,12 +90,10 @@ async fn on_room_event_message(event: OriginalSyncRoomMemberEvent, room: Room) {
         let reply = RoomMessageEventContent::text_plain(format!("Warning, spam, {}", event.sender))
             .set_mentions(Mentions::with_user_ids([event.sender.clone()]));
         room.send(reply.clone()).await.ok();
-        if let Ok(true) = room.can_user_ban(&event.sender).await {
-            tracing::info!("Ban {}", event.sender);
-            room.ban_user(&event.sender, Some("UserName Spam"))
-                .await
-                .ok();
-        }
+        tracing::info!("Ban {}", event.sender);
+        room.ban_user(&event.sender, Some("UserName Spam"))
+            .await
+            .ok();
     }
 }
 
