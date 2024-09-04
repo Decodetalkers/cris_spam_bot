@@ -16,3 +16,5 @@ COPY --from=build /app/cris_spam_bot /bin/
 COPY --from=build /app/README.md /
 
 ENTRYPOINT [ "/bin/cris_spam_bot" ]
+
+STOPSIGNAL SIGTERM
