@@ -1,22 +1,83 @@
 mod config;
 use config::Config;
-use std::path::PathBuf;
-
 use matrix_sdk::{
     config::SyncSettings,
-    ruma::events::{
-        room::{member::OriginalSyncRoomMemberEvent, message::RoomMessageEventContent},
-        Mentions,
+    ruma::{
+        events::{
+            room::{
+                member::OriginalSyncRoomMemberEvent,
+                message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
+            },
+            Mentions,
+        },
+        OwnedUserId,
     },
     sync::SyncResponse,
     Client, Room, RoomState,
+};
+use tokio::sync::Mutex;
+
+use std::path::PathBuf;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
 use clap::{arg, Parser};
 use std::sync::OnceLock;
 
+use std::sync::LazyLock;
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 static ROOM_FILITERS: OnceLock<Option<Vec<String>>> = OnceLock::new();
+
+#[derive(Debug, Clone)]
+struct SpamPersion {
+    count: usize,
+    time: Instant,
+}
+
+impl SpamPersion {
+    fn new() -> Self {
+        Self {
+            count: 1,
+            time: Instant::now(),
+        }
+    }
+
+    fn update(&self) -> Self {
+        Self {
+            count: self.count + 1,
+            time: Instant::now(),
+        }
+    }
+
+    fn count(&self) -> usize {
+        self.count
+    }
+
+    fn time(&self) -> Instant {
+        self.time
+    }
+}
+
+static SPAMED_PERSION: LazyLock<Arc<Mutex<Option<SpamPersion>>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(None)));
+
+async fn set_spam(persion: SpamPersion) {
+    let mut locked_persion = SPAMED_PERSION.lock().await;
+    *locked_persion = Some(persion);
+}
+
+async fn reset_spam() {
+    let mut locked_persion = SPAMED_PERSION.lock().await;
+    *locked_persion = None;
+}
+
+async fn get_spam() -> Option<SpamPersion> {
+    let locked_persion = SPAMED_PERSION.lock().await;
+    locked_persion.clone()
+}
 
 async fn set_rooms(rooms: Option<Vec<String>>) {
     ROOM_FILITERS.set(rooms).expect("Cannot set it");
@@ -68,6 +129,70 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
+    if RoomState::Joined != room.state() {
+        return;
+    };
+    let Some(rooms) = get_rooms().await else {
+        return;
+    };
+    let room_id = room.room_id();
+
+    if !rooms.contains(&room_id.to_string()) {
+        return;
+    }
+
+    let spam_check = |persion: SpamPersion, room: Room, sender: OwnedUserId| async move {
+        let time = persion.time();
+        let current_time = Instant::now();
+        if current_time - time < Duration::from_secs_f64(3.5) {
+            if persion.count() > 5 {
+                let reply =
+                    RoomMessageEventContent::text_plain(format!("Warning, spam, {}", sender))
+                        .set_mentions(Mentions::with_user_ids([sender.clone()]));
+                room.send(reply.clone()).await.ok();
+                tracing::info!("Ban {}", sender);
+                room.ban_user(&sender, Some("UserName Spam")).await.ok();
+                reset_spam().await;
+            } else {
+                set_spam(persion.update()).await;
+            }
+        } else {
+            reset_spam().await
+        }
+    };
+
+    match event.content.msgtype {
+        MessageType::Image(_) => {
+            let spam_record = get_spam().await;
+            match spam_record {
+                Some(persion) => {
+                    spam_check(persion, room, event.sender).await;
+                }
+                None => {
+                    set_spam(SpamPersion::new()).await;
+                }
+            }
+        }
+        MessageType::Text(context) => {
+            if context.body.len() < 20 {
+                reset_spam().await;
+                return;
+            }
+            let spam_record = get_spam().await;
+            match spam_record {
+                Some(persion) => {
+                    spam_check(persion, room, event.sender).await;
+                }
+                None => {
+                    set_spam(SpamPersion::new()).await;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 async fn on_room_event_message(event: OriginalSyncRoomMemberEvent, room: Room) {
     if RoomState::Joined != room.state() {
         return;
@@ -75,10 +200,9 @@ async fn on_room_event_message(event: OriginalSyncRoomMemberEvent, room: Room) {
     let Some(rooms) = get_rooms().await else {
         return;
     };
-    let Some(room_name) = room.name() else {
-        return;
-    };
-    if !rooms.contains(&room_name) {
+    let room_id = room.room_id();
+
+    if !rooms.contains(&room_id.to_string()) {
         return;
     }
 
@@ -117,6 +241,7 @@ async fn login_and_sync(
     let response: SyncResponse = client.sync_once(SyncSettings::default()).await?;
 
     client.add_event_handler(on_room_event_message);
+    client.add_event_handler(on_room_message);
 
     let settings = SyncSettings::default().token(response.next_batch);
     client.sync(settings).await?;
