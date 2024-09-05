@@ -163,7 +163,7 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
                         .set_mentions(Mentions::with_user_ids([sender.clone()]));
                 room.send(reply.clone()).await.ok();
                 tracing::info!("Ban {}", sender);
-                room.ban_user(&sender, Some("UserName Spam")).await.ok();
+                room.ban_user(&sender, Some("Spam")).await.ok();
                 reset_spam().await;
             } else {
                 set_spam(persion.update()).await;
@@ -186,6 +186,15 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
             }
         }
         MessageType::Text(context) => {
+            if context.body.len() > 500 {
+                let reply =
+                    RoomMessageEventContent::text_plain(format!("Warning, spam, {}", event.sender))
+                        .set_mentions(Mentions::with_user_ids([event.sender.clone()]));
+                room.send(reply.clone()).await.ok();
+                tracing::info!("Ban {}", event.sender);
+                room.ban_user(&event.sender, Some("Spam")).await.ok();
+                reset_spam().await;
+            }
             if context.body.len() < 20 {
                 reset_spam().await;
                 return;
