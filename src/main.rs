@@ -33,13 +33,15 @@ static ROOM_FILITERS: OnceLock<Option<Vec<String>>> = OnceLock::new();
 
 #[derive(Debug, Clone)]
 struct SpamPersion {
+    id: OwnedUserId,
     count: usize,
     time: Instant,
 }
 
 impl SpamPersion {
-    fn new() -> Self {
+    fn new(id: OwnedUserId) -> Self {
         Self {
+            id,
             count: 1,
             time: Instant::now(),
         }
@@ -47,6 +49,7 @@ impl SpamPersion {
 
     fn update(&self) -> Self {
         Self {
+            id: self.id.clone(),
             count: self.count + 1,
             time: Instant::now(),
         }
@@ -58,6 +61,10 @@ impl SpamPersion {
 
     fn time(&self) -> Instant {
         self.time
+    }
+
+    fn sender(&self) -> &OwnedUserId {
+        &self.id
     }
 }
 
@@ -145,6 +152,10 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     let spam_check = |persion: SpamPersion, room: Room, sender: OwnedUserId| async move {
         let time = persion.time();
         let current_time = Instant::now();
+        if &sender != persion.sender() {
+            set_spam(SpamPersion::new(sender)).await;
+            return;
+        }
         if current_time - time < Duration::from_secs_f64(3.5) {
             if persion.count() > 5 {
                 let reply =
@@ -170,7 +181,7 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
                     spam_check(persion, room, event.sender).await;
                 }
                 None => {
-                    set_spam(SpamPersion::new()).await;
+                    set_spam(SpamPersion::new(event.sender)).await;
                 }
             }
         }
@@ -185,7 +196,7 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
                     spam_check(persion, room, event.sender).await;
                 }
                 None => {
-                    set_spam(SpamPersion::new()).await;
+                    set_spam(SpamPersion::new(event.sender)).await;
                 }
             }
         }
