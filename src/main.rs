@@ -194,6 +194,7 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
                 tracing::info!("Ban {}", event.sender);
                 room.ban_user(&event.sender, Some("Spam")).await.ok();
                 reset_spam().await;
+                return;
             }
             if context.body.len() < 20 {
                 reset_spam().await;
