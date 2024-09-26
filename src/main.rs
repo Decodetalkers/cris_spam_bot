@@ -186,7 +186,7 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
             }
         }
         MessageType::Text(context) => {
-            if context.body.len() > 500 {
+            if context.body.len() > 3000 {
                 let reply =
                     RoomMessageEventContent::text_plain(format!("Warning, spam, {}", event.sender))
                         .set_mentions(Mentions::with_user_ids([event.sender.clone()]));
@@ -202,7 +202,9 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
             let spam_record = get_spam().await;
             match spam_record {
                 Some(persion) => {
-                    spam_check(persion, room, event.sender).await;
+                    if context.body.len() > 500 {
+                        spam_check(persion, room, event.sender).await;
+                    }
                 }
                 None => {
                     set_spam(SpamPersion::new(event.sender)).await;
