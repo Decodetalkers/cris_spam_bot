@@ -156,7 +156,7 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
             set_spam(SpamPersion::new(sender)).await;
             return;
         }
-        if current_time - time < Duration::from_secs_f64(3.5) {
+        if current_time - time < Duration::from_secs_f64(20.0) {
             if persion.count() > 5 {
                 let reply =
                     RoomMessageEventContent::text_plain(format!("Warning, spam, {}", sender))
