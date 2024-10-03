@@ -232,7 +232,7 @@ async fn on_room_event_message(event: OriginalSyncRoomMemberEvent, room: Room) {
     let Some(display_name) = event.content.displayname else {
         return;
     };
-    if display_name.len() >= 20 {
+    if display_name.len() >= 40 {
         tracing::info!("Spam! {}", event.sender);
         let reply = RoomMessageEventContent::text_plain(format!("Warning, spam, {}", event.sender))
             .set_mentions(Mentions::with_user_ids([event.sender.clone()]));
