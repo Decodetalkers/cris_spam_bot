@@ -186,7 +186,7 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
             }
         }
         MessageType::Text(context) => {
-            if context.body.len() > 6000 {
+            if context.body.len() > 2000 {
                 let reply =
                     RoomMessageEventContent::text_plain(format!("Warning, spam, {}", event.sender))
                         .set_mentions(Mentions::with_user_ids([event.sender.clone()]));
